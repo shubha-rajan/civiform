@@ -93,7 +93,7 @@ variable "postgres_subnet_address_prefixes" {
 
 variable "log_sku" {
   type        = string
-  description = "The SKU for the sever logs"
+  description = "The SKU for the server logs"
   default     = "PerGB2018"
 }
 
@@ -101,4 +101,34 @@ variable "log_retention" {
   type        = number
   description = "The number of days the logs will be retained for"
   default     = 30
+}
+
+variable "storage_account_name" {
+  type        = string
+  description = "Name of storage account"
+}
+
+variable "storage_container_name" {
+  type        = string
+  description = "Name of blob storage container"
+}
+
+variable "storage_account_tier" {
+  type        = string
+  description = "Tier for storage account"
+  default     = "Standard"
+}
+
+variable "storage_account_replication_type" {
+  type        = string
+  description = "Replication type for storage account"
+  default     = "LRS"
+}
+
+variable "storage_subnet_address_prefixes" {
+  type        = list(string)
+  description = "A list of the subnet address prefixes for the blob storage private endpoint"
+  default = [
+    "10.0.6.0/24"
+  ]
 }

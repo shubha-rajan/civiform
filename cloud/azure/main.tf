@@ -74,6 +74,10 @@ resource "azurerm_app_service" "civiform_app" {
     DB_PASSWORD    = azurerm_postgresql_server.civiform.administrator_login_password
     DB_JDBC_STRING = "jdbc:postgresql://${local.postgres_private_link}:5432/postgres?ssl=true&sslmode=require"
 
+    STORAGE_SERVICE_NAME            = "azure-blob"
+    AZURE_STORAGE_ACCOUNT_NAME      = azurerm_storage_account.storage.name
+    AZURE_STORAGE_ACCOUNT_CONTAINER = azurerm_storage_container.storage_container.name
+
     SECRET_KEY = var.app_secret_key
   }
   # Configure Docker Image to load on start
@@ -88,6 +92,18 @@ resource "azurerm_app_service" "civiform_app" {
     type = "SystemAssigned"
   }
 
+}
+
+resource "azurerm_role_assignment" "storage_blob_delegator" {
+  scope                = azurerm_storage_container.storage_container.resource_manager_id
+  role_definition_name = "Storage Blob Delegator"
+  principal_id         = azurerm_app_service.civiform_app.identity.0.principal_id
+}
+
+resource "azurerm_role_assignment" "storage_blob_data_contributor" {
+  scope                = azurerm_storage_container.storage_container.resource_manager_id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_app_service.civiform_app.identity.0.principal_id
 }
 
 resource "azurerm_app_service_virtual_network_swift_connection" "appservice_vnet_connection" {
@@ -190,27 +206,27 @@ resource "azurerm_subnet" "postgres_subnet" {
   enforce_private_link_endpoint_network_policies = true
 }
 
-resource "azurerm_private_dns_zone" "privatelink" {
+resource "azurerm_private_dns_zone" "postgres_private_link" {
   name                = "privatelink.postgres.database.azure.com"
   resource_group_name = azurerm_resource_group.rg.name
 }
 
-resource "azurerm_private_dns_zone_virtual_network_link" "vnet_link" {
-  name                  = "vnet-link-private-dns"
+resource "azurerm_private_dns_zone_virtual_network_link" "postgres_vnet_link" {
+  name                  = "postgres-vnet-link-private-dns"
   resource_group_name   = azurerm_resource_group.rg.name
-  private_dns_zone_name = azurerm_private_dns_zone.privatelink.name
+  private_dns_zone_name = azurerm_private_dns_zone.postgres_private_link.name
   virtual_network_id    = azurerm_virtual_network.civiform_vnet.id
 }
 
-resource "azurerm_private_endpoint" "endpoint" {
+resource "azurerm_private_endpoint" "postgres_endpoint" {
   name                = "${azurerm_postgresql_server.civiform.name}-endpoint"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   subnet_id           = azurerm_subnet.postgres_subnet.id
 
   private_dns_zone_group {
-    name                 = "private-dns-zone-group"
-    private_dns_zone_ids = [azurerm_private_dns_zone.privatelink.id]
+    name                 = "postgres-private-dns-zone-group"
+    private_dns_zone_ids = [azurerm_private_dns_zone.postgres_private_link.id]
   }
 
   private_service_connection {
@@ -218,5 +234,70 @@ resource "azurerm_private_endpoint" "endpoint" {
     private_connection_resource_id = azurerm_postgresql_server.civiform.id
     subresource_names              = ["postgresqlServer"]
     is_manual_connection           = false
+  }
+}
+
+
+resource "azurerm_storage_account" "storage" {
+  name                      = var.storage_account_name
+  resource_group_name       = azurerm_resource_group.rg.name
+  location                  = azurerm_resource_group.rg.location
+  account_kind              = "StorageV2"
+  account_tier              = var.storage_account_tier
+  account_replication_type  = var.storage_account_replication_type
+  enable_https_traffic_only = true
+}
+
+resource "azurerm_storage_container" "storage_container" {
+  name                  = var.storage_container_name
+  storage_account_name  = azurerm_storage_account.storage.name
+  container_access_type = "private"
+}
+
+resource "azurerm_subnet" "storage_subnet" {
+  name                 = "storage_subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.civiform_vnet.name
+  address_prefixes     = var.storage_subnet_address_prefixes
+
+  enforce_private_link_endpoint_network_policies = true
+}
+
+resource "azurerm_private_dns_zone" "storage_private_link" {
+  name                = "privatelink.blob.core.windows.net"
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "storage_vnet_link" {
+  name                  = "storage-vnet-link-private-dns"
+  resource_group_name   = azurerm_resource_group.rg.name
+  private_dns_zone_name = azurerm_private_dns_zone.storage_private_link.name
+  virtual_network_id    = azurerm_virtual_network.civiform_vnet.id
+}
+
+resource "azurerm_private_endpoint" "storage_endpoint" {
+  name                = "${azurerm_storage_account.storage.name}-endpoint"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  subnet_id           = azurerm_subnet.storage_subnet.id
+
+  private_dns_zone_group {
+    name                 = "storage-private-dns-zone-group"
+    private_dns_zone_ids = [azurerm_private_dns_zone.storage_private_link.id]
+  }
+  private_service_connection {
+    name                           = "${azurerm_storage_account.storage.name}-privateserviceconnection"
+    private_connection_resource_id = azurerm_storage_account.storage.id
+    subresource_names              = ["blob"]
+    is_manual_connection           = false
+  }
+
+}
+
+resource "azurerm_storage_account_network_rules" "storage_network_rules" {
+  storage_account_id = azurerm_storage_account.storage.id
+  default_action     = "Deny"
+  private_link_access {
+    endpoint_resource_id = azurerm_private_endpoint.storage_endpoint.id
   }
 }
