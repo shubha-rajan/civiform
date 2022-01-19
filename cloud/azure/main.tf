@@ -68,6 +68,11 @@ resource "azurerm_app_service" "civiform_app" {
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = false
     PORT                                = 9000
 
+    # The below variables need to be set to allow App Service to use Private DNS Zones
+    # See https://docs.microsoft.com/en-us/answers/questions/85359/azure-app-service-unable-to-resolve-hostname-of-vi.html
+    WEBSITE_DNS_SERVER     = "168.63.129.16"
+    WEBSITE_VNET_ROUTE_ALL = 1
+
     DOCKER_REGISTRY_SERVER_URL = "https://index.docker.io"
 
     DB_USERNAME    = "${azurerm_postgresql_server.civiform.administrator_login}@${azurerm_postgresql_server.civiform.name}"
